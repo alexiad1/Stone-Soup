@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Mathematical functions used within Stone Soup"""
+import copy
 
 import numpy as np
-from copy import copy
 
-from .types.numeric import Probability
-from .types.array import Matrix
+from ..types.numeric import Probability
+from ..types.array import StateVector, StateVectors, CovarianceMatrix
 
 
 def tria(matrix):
@@ -34,6 +34,40 @@ def tria(matrix):
     lower_triangular[:, index] *= -1
 
     return lower_triangular
+
+
+def cholesky_eps(A, lower=False):
+    """Perform a Cholesky decomposition on a nearly positive-definite matrix.
+
+    This should return similar results to NumPy/SciPy Cholesky decompositions,
+    but compromises for cases for non positive-definite matrix.
+
+    Parameters
+    ----------
+    A : numpy.ndarray
+        Symmetric positive-definite matrix.
+    lower : bool
+        Whether to return lower or upper triangular decomposition. Default
+        `False` which returns upper.
+
+    Returns
+    -------
+    L : numpy.ndarray
+        Upper/lower triangular Cholesky decomposition.
+    """
+    eps = np.spacing(np.max(np.diag(A)))
+
+    L = np.zeros(A.shape)
+    for i in range(A.shape[0]):
+        for j in range(i):
+            L[i, j] = (A[i, j] - L[i, :]@L[j, :].T) / L[j, j]
+        val = A[i, i] - L[i, :]@L[i, :].T
+        L[i, i] = np.sqrt(val) if val > eps else np.sqrt(eps)
+
+    if lower:
+        return L
+    else:
+        return L.T
 
 
 def jacobian(fun, x):
@@ -66,7 +100,7 @@ def jacobian(fun, x):
     f1 = np.atleast_2d(fun(x))
     nrows, _ = np.shape(f1)
 
-    x2 = copy(x)  # Create a clone of the input
+    x2 = copy.copy(x)  # Create a clone of the input
     F2 = np.empty((nrows, ndim))
     X1 = np.tile(x.state_vector, ndim)+np.eye(ndim)*delta
 
@@ -95,7 +129,7 @@ def gauss2sigma(state, alpha=1.0, beta=2.0, kappa=None):
         (default is 1)
     beta : float, optional
         Used to incorporate prior knowledge of the distribution
-        2 is optimal is the state is normally distributed.
+        2 is optimal if the state is normally distributed.
         (default is 2)
     kappa : float, optional
         Secondary spread scaling parameter
@@ -129,7 +163,12 @@ def gauss2sigma(state, alpha=1.0, beta=2.0, kappa=None):
     c = ndim_state + lamda
 
     # Calculate sigma point locations
-    sigma_points = np.tile(state.state_vector, (1, 2 * ndim_state + 1))
+    sigma_points = StateVectors([state.state_vector for _ in range(2 * ndim_state + 1)])
+
+    # Cast dtype from int to float to avoid rounding errors
+    if np.issubdtype(sigma_points.dtype, np.integer):
+        sigma_points = sigma_points.astype(float)
+
     # Can't use in place addition/subtraction as casting issues may arise when mixing float/int
     sigma_points[:, 1:(ndim_state + 1)] = \
         sigma_points[:, 1:(ndim_state + 1)] + sqrt_sigma*np.sqrt(c)
@@ -139,8 +178,8 @@ def gauss2sigma(state, alpha=1.0, beta=2.0, kappa=None):
     # Put these sigma points into s State object list
     sigma_points_states = []
     for sigma_point in sigma_points.T:
-        state_copy = copy(state)
-        state_copy.state_vector = np.atleast_2d(sigma_point).T
+        state_copy = copy.copy(state)
+        state_copy.state_vector = StateVector(sigma_point)
         sigma_points_states.append(state_copy)
 
     # Calculate weights
@@ -158,7 +197,7 @@ def sigma2gauss(sigma_points, mean_weights, covar_weights, covar_noise=None):
 
     Parameters
     ----------
-    sigma_points : :class:`numpy.ndarray` of shape `(Ns, 2*Ns+1)`
+    sigma_points : :class:`~.StateVectors` of shape `(Ns, 2*Ns+1)`
         An array containing the locations of the sigma points
     mean_weights : :class:`numpy.ndarray` of shape `(2*Ns+1,)`
         An array containing the sigma point mean weights
@@ -170,20 +209,20 @@ def sigma2gauss(sigma_points, mean_weights, covar_weights, covar_noise=None):
 
     Returns
     -------
-    : :class:`numpy.ndarray` of shape `(Ns, 1)`
+    : :class:`~.StateVector` of shape `(Ns, 1)`
         Calculated mean
     : :class:`~.CovarianceMatrix` of shape `(Ns, Ns)`
         Calculated covariance
     """
 
-    mean = sigma_points@mean_weights[:, np.newaxis]
+    mean = np.average(sigma_points, axis=1, weights=mean_weights)
 
     points_diff = sigma_points - mean
 
     covar = points_diff@(np.diag(covar_weights))@(points_diff.T)
     if covar_noise is not None:
         covar = covar + covar_noise
-    return mean, covar
+    return mean.view(StateVector), covar.view(CovarianceMatrix)
 
 
 def unscented_transform(sigma_points_states, mean_weights, covar_weights,
@@ -197,7 +236,7 @@ def unscented_transform(sigma_points_states, mean_weights, covar_weights,
 
     Parameters
     ----------
-    sigma_points : :class:`numpy.ndarray` of shape `(Ns, 2*Ns+1)`
+    sigma_points : :class:`~.StateVectors` of shape `(Ns, 2*Ns+1)`
         An array containing the locations of the sigma points
     mean_weights : :class:`numpy.ndarray` of shape `(2*Ns+1,)`
         An array containing the sigma point mean weights
@@ -216,53 +255,41 @@ def unscented_transform(sigma_points_states, mean_weights, covar_weights,
 
     Returns
     -------
-    : :class:`numpy.ndarray` of shape `(Ns, 1)`
+    : :class:`~.StateVector` of shape `(Ns, 1)`
         Transformed mean
     : :class:`~.CovarianceMatrix` of shape `(Ns, Ns)`
         Transformed covariance
     : :class:`~.CovarianceMatrix` of shape `(Ns,Nm)`
         Calculated cross-covariance matrix
-    : :class:`numpy.ndarray` of shape `(Ns, 2*Ns+1)`
+    : :class:`~.StateVectors` of shape `(Ns, 2*Ns+1)`
         An array containing the locations of the transformed sigma points
     : :class:`numpy.ndarray` of shape `(2*Ns+1,)`
         An array containing the transformed sigma point mean weights
     : :class:`numpy.ndarray` of shape `(2*Ns+1,)`
         An array containing the transformed sigma point covariance weights
     """
-
-    n_points = len(sigma_points_states)
-    ndim_state = len(sigma_points_states[0].state_vector)
-
     # Reconstruct the sigma_points matrix
-    sigma_points = np.empty((ndim_state, 0))
-    for sigma_points_state in sigma_points_states:
-        sigma_points = np.c_[sigma_points, sigma_points_state.state_vector]
+    sigma_points = StateVectors([
+        sigma_points_state.state_vector for sigma_points_state in sigma_points_states])
 
     # Transform points through f
-    sigma_points_t = np.zeros((ndim_state, n_points))
     if points_noise is None:
-        sigma_points_t = np.asarray(
-            [fun(sigma_points_states[i])
-             for i in range(n_points)]).squeeze(2).T
+        sigma_points_t = StateVectors([
+            fun(sigma_points_state) for sigma_points_state in sigma_points_states])
     else:
-        sigma_points_t = np.asarray(
-            [fun(sigma_points_states[i], points_noise[:, i:i+1])
-             for i in range(n_points)]).squeeze(2).T
-    sigma_points_t = sigma_points_t.view(Matrix)
+        sigma_points_t = StateVectors([
+            fun(sigma_points_state, points_noise)
+            for sigma_points_state, point_noise in zip(sigma_points_states, points_noise.T)])
 
     # Calculate mean and covariance approximation
-    mean, covar = sigma2gauss(
-        sigma_points_t, mean_weights, covar_weights, covar_noise)
+    mean, covar = sigma2gauss(sigma_points_t, mean_weights, covar_weights, covar_noise)
 
     # Calculate cross-covariance
     cross_covar = (
-        (sigma_points-sigma_points[:, 0:1])
-        @np.diag(mean_weights)
-        @(sigma_points_t-mean).T
-    )
+        (sigma_points-sigma_points[:, 0:1]) @ np.diag(mean_weights) @ (sigma_points_t-mean).T
+    ).view(CovarianceMatrix)
 
-    return mean, covar, cross_covar,\
-        sigma_points_t, mean_weights, covar_weights
+    return mean, covar, cross_covar, sigma_points_t, mean_weights, covar_weights
 
 
 def cart2pol(x, y):
@@ -493,40 +520,34 @@ def gm_reduce_single(means, covars, weights):
 
     Parameters
     ----------
-    means : np.array of shape (num_components, num_dims)
+    means : :class:`~.StateVectors`
         The means of the GM components
-    covars : np.array of shape (num_components, num_dims, num_dims)
+    covars : np.array of shape (num_dims, num_dims, num_components)
         The covariance matrices of the GM components
     weights : np.array of shape (num_components,)
         The weights of the GM components
 
     Returns
     -------
-    np.array of shape (num_dims, 1)
+    : :class:`~.StateVector`
         The mean of the reduced/single Gaussian
-    np.array of shape (num_dims, num_dims)
+    : :class:`~.CovarianceMatrix`
         The covariance of the reduced/single Gaussian
     """
-
-    # Compute dimensionality variables
-    num_components, num_dims = np.shape(means)
-
     # Normalise weights such that they sum to 1
     weights = weights/Probability.sum(weights)
 
+    # Cast means as a StateVectors, so this works with ndarray types
+    means = means.view(StateVectors)
+
     # Calculate mean
-    mean = np.average(means, axis=0, weights=weights).astype(np.float_)
-    mean.shape = (1, num_dims)
+    mean = np.average(means, axis=1, weights=weights)
 
     # Calculate covar
-    covar = np.zeros((num_dims, num_dims))
-    for i in range(num_components):
-        v = means[i, :] - mean
-        a = np.add(covars[i], v.T@v)
-        b = weights[i]
-        covar = np.add(covar, b*a)
+    delta_means = means - mean
+    covar = np.sum(covars*weights, axis=2, dtype=np.float_) + weights*delta_means@delta_means.T
 
-    return mean.transpose(), covar
+    return mean.view(StateVector), covar.view(CovarianceMatrix)
 
 
 def mod_bearing(x):
@@ -572,3 +593,90 @@ def mod_elevation(x):
     elif N == 3:
         x = x - 2.0 * np.pi
     return x
+
+
+def build_rotation_matrix(angle_vector: np.ndarray):
+    """
+    Calculates and returns the (3D) axis rotation matrix given a vector of
+    three angles:
+    [roll, pitch/elevation, yaw/azimuth]
+
+    Parameters
+    ----------
+        angle_vector : :class:`numpy.ndarray` of shape (3, 1): the rotations
+        about the :math:'x, y, z' axes.
+        In aircraft/radar terms these correspond to
+        [roll, pitch/elevation, yaw/azimuth]
+
+    Returns
+    -------
+        :class:`numpy.ndarray` of shape (3, 3)
+            The model (3D) rotation matrix.
+    """
+    theta_x = -angle_vector[0, 0]  # roll
+    theta_y = angle_vector[1, 0]  # pitch#elevation
+    theta_z = -angle_vector[2, 0]  # yaw#azimuth
+    return rotz(theta_z) @ roty(theta_y) @ rotx(theta_x)
+
+
+def dotproduct(a, b):
+    r"""Returns the dot (or scalar) product of two StateVectors.
+
+    The result for vectors of length :math:`n` is
+    :math:`\Sigma_i^n a_i b_i`.
+
+    Inputs are state vectors, i.e. the second dimension is 1
+
+    Parameters
+    ----------
+    a : StateVector
+        A state vector
+    b : StateVector
+        A state vector of equal length to :math:`a`
+
+    Returns
+    -------
+    : float
+        A scalar value representing the dot product of the vectors.
+    """
+    if np.shape(a)[1] != 1 or np.shape(b)[1] != 1 or np.ndim(a) != 2 or \
+            np.ndim(b) != 2:
+        raise ValueError("Inputs must be column vectors")
+
+    if np.shape(a)[0] != np.shape(b)[0]:
+        raise ValueError("Input vectors must be the same length")
+
+    out = 0
+    for a_i, b_i in zip(a, b):
+        out += a_i*b_i
+
+    return out
+
+
+def sde_euler_maruyama_integration(fun, t_values, state_x0):
+    """Perform SDE Euler Maruyama Integration
+
+    Performs Stochastic Differential Equation Integration using the Euler
+    Maruyama method.
+
+    Parameters
+    ----------
+    fun : callable
+        Function to integrate.
+    t_values : list of :class:`float`
+        Time values to integrate over
+    state_x0 : :class:`~.State`
+        Initial state for time in first value in :obj:`t_values`.
+
+    Returns
+    -------
+    : :class:`~.StateVector`
+        Final value for the time in last value in :obj:`t_values`
+    """
+    state_x = copy.deepcopy(state_x0)
+    for t, next_t in zip(t_values[:-1], t_values[1:]):
+        delta_t = next_t - t
+        delta_w = np.random.normal(scale=np.sqrt(delta_t), size=(state_x.ndim, 1))
+        a, b = fun(state_x, t)
+        state_x.state_vector = state_x.state_vector + a*delta_t + b@delta_w
+    return state_x.state_vector

@@ -3,6 +3,17 @@ Stone Soup Framework
 
 .. automodule:: stonesoup
 
+.. toctree::
+    interface
+    types
+    stonesoup.base
+    stonesoup.config
+    stonesoup.functions
+    stonesoup.measures
+    stonesoup.plotter
+    stonesoup.plugins
+    stonesoup.serialise
+
 Components
 ----------
 Stone Soup has a number of components which are used to build up a tracker.
@@ -15,26 +26,27 @@ Enabling Components
     stonesoup.detector
     stonesoup.feeder
     stonesoup.metricgenerator
+    stonesoup.platform
     stonesoup.reader
+    stonesoup.sensor
     stonesoup.simulator
-    stonesoup.smoother
     stonesoup.tracker
     stonesoup.writer
-    stonesoup.platform
-    stonesoup.sensor
 
-Tracker Components
-^^^^^^^^^^^^^^^^^^
+Algorithm Components
+^^^^^^^^^^^^^^^^^^^^
 .. toctree::
 
     stonesoup.dataassociator
     stonesoup.deleter
+    stonesoup.gater
     stonesoup.hypothesiser
     stonesoup.initiator
     stonesoup.mixturereducer
     stonesoup.models
     stonesoup.predictor
     stonesoup.resampler
+    stonesoup.smoother
     stonesoup.updater
 
 Data Types

@@ -4,7 +4,7 @@ import numpy as np
 from functools import lru_cache
 
 from ..base import Property
-from .base import Predictor
+from .kalman import KalmanPredictor
 from ..types.prediction import InformationStatePrediction
 from ..types.update import InformationStateUpdate  # To check incoming "prior" data
 from ..types.state import InformationState  # To check incoming "prior" data
@@ -14,47 +14,60 @@ from ..models.control.linear import LinearControlModel
 from numpy.linalg import inv
 
 
-class InfoFilterPredictor(Predictor):
-    r"""A predictor class which forms the basis for the family of Kalman
-    predictors. This class also serves as the (specific) Kalman Filter
-    :class:`~.Predictor` class. Here the predictor model is updated from the base class
+class InformationKalmanPredictor(KalmanPredictor):
+    r"""A predictor class which uses the information form of the Kalman filter. The key concept is
+    that 'information' is encoded as the information matrix, and the so-called 'information state',
+    which are:
 
     .. math::
 
-        \mathbf{y}_{k|k-1} = f_k(\mathbf{y}_{k-1}, \mathbf{\nu}_k) +
-        b_k(\mathbf{u}_k, \mathbf{\eta}_k)
+        Y_{k-1} &= P^{-1}_{k-1}
 
-    where :math:`\mathbf{x}_{k|k-1}` has been replaced by an information-theoretic state
-    :math:`\mathbf{y}_{k|k-1}`. Thus the predictor class implements
+        \mathbf{y}_{k-1} &= P^{-1}_{k-1} \mathbf{x}_{k-1}
 
-    .. math::
-
-      f_k( \mathbf{y}_{k-1}) = [I_{identity} - \Omega_k G^T_k] F^{-T}_k \mathbf{y}_{k-1|k-1}, \
-      b_k( \mathbf{y}_k) = Y_k B_k \mathbf{y}_{k|k-1} \ \mathrm{and} \ \mathbf{\nu}_k \sim
-      \mathcal{N}(0,Q_k)
-
-    where :math:`I_{identity}` is the identity matrix.
-
-    The information prediction gain (analogous to the Kalman gain) is then calculated as,
+    The prediction then proceeds as_[1]
 
     .. math::
 
-        \Omega_k = M_k G_k \Sigma^{-1}_k
+        Y_{k|k-1} = [F_k Y_{k-1}^{-1} F^T + Q_k]^{-1}
 
-    where G is the "information observation" matrix which is assumed to be set to the identity
-    matrix in this implementation.
+        \mathbf{y}_{k|k-1} = Y_{k|k-1} F_k Y_{k-1}^{-1} \mathbf{y}_{k-1} + Y_{k|k-1} B_k \mathbf{u}_k
 
-    Notes
-    -----
-    In the Information filter (similar to the Kalman filter), transition and control models must be
-    linear. Accepts InformationStateUpdate.
+    where the symbols have the same meaning as in the description of the Kalman filter [ref] and the
+    prediction equations can be derived from those of the Kalman filter. In order to cut down on the
+    number of matrix inversions and to benefit from caching these are usually recast as_[2]:
 
+    .. math::
+
+            M_k = (F_k^{-1})^T Y_{k-1} F_k^{-1}
+
+            Y_{k|k-1} = (I + M_k Q_k)^{-1} M_k
+
+            \mathbf{y}_{k|k-1} = (I + M_k Q_k)^{-1} (F_k^{-1})^T \mathbf{y}_k + Y_{k|k-1} B_k
+            \mathbf{u}_k
+
+    The prior state must have a state vector :math:`\mathbf{y}_{k-1}` corresponding to
+    :math:`P_{k-1}^{-1} \mathbf{x}_{k-1}` and a 'precision matrix', :math:`Y_{k-1} = P_{k-1}^{-1}`.
+    The :class:`InformationState` class is provided for this purpose.
+
+    The :class:`TransitionModel` is queried for the existence of an
+    :meth:`inverse_transition_matrix()` method, and if not present, :meth:`transition_matrix()` is
+    inverted. This gives one the opportuity to cache :math:`F_k^{-1}` and save computational
+    resource.
 
     Raises
     ------
     ValueError
         If no :class:`~.TransitionModel` is specified.
 
+   References
+    ----------
+    .. [1] Kim, Y-S, Hong, K-S 2003, Decentralized information filter in federated form, SICE
+    annual conference
+
+    .. [2] Makarenko, A., Durrant-Whyte, H. 2004, Decentralized data fusion and control in active
+    sensor networks, in: The 7th International Conference on Information Fusion (Fusion'04),
+    pp. 479-486
 
     """
 
@@ -72,28 +85,13 @@ class InfoFilterPredictor(Predictor):
 
         # If no control model insert a linear zero-effect one
         # TODO: Think about whether it's more efficient to leave this out
+        # TODO: inherit this from the Kalman predictor?
         if self.control_model is None:
             ndims = self.transition_model.ndim_state
             self.control_model = LinearControlModel(ndims, [],
                                                     np.zeros([ndims, 1]),
                                                     np.zeros([ndims, ndims]),
                                                     np.zeros([ndims, ndims]))
-
-    def _noise_transition_matrix(self, **kwargs):
-        """Return the noise transition matrix
-
-        Parameters
-        ----------
-        **kwargs : various, optional
-            These are passed to :meth:`~.LinearGaussianTransitionModel.matrix`
-
-        Returns
-        -------
-        : :class:`numpy.ndarray`
-            The noise transition matrix, :math:`G`
-
-        """
-        return np.identity(self.transition_model.ndim_state)
 
     def _transition_matrix(self, **kwargs):
         """Return the transition matrix

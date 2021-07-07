@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 from operator import attrgetter
+from typing import Set
 
-import numpy as np
-
-from ..base import Property
 from .base import TrackToTrackAssociator
-from ..models.measurement import MeasurementModel
-from ..types.association import AssociationSet, TimeRangeAssociation
+from ..base import Property
+from ..measures import Measure, Euclidean
+from ..types.association import AssociationSet, TimeRangeAssociation, Association
+from ..types.groundtruth import GroundTruthPath
+from ..types.track import Track
 from ..types.time import TimeRange
 
 
-class EuclideanTrackToTrack(TrackToTrackAssociator):
-    """Euclidean track to track associator
+class TrackToTrack(TrackToTrackAssociator):
+    """Track to track associator
 
     Compares two sets of :class:`~.tracks`, each formed of a sequence of
     :class:`~.State` objects and returns an :class:`~.Association` object for
@@ -32,37 +33,32 @@ class EuclideanTrackToTrack(TrackToTrackAssociator):
     combinations
     """
 
-    association_threshold = Property(
-        float, default=10,
+    association_threshold: float = Property(
+        default=10,
         doc="Threshold distance measure which states must be within for an "
             "association to be recorded.Default is 10")
-    consec_pairs_confirm = Property(
-        int, default=3,
+    consec_pairs_confirm: int = Property(
+        default=3,
         doc="Number of consecutive time instances which track pairs are "
             "required to be within a specified threshold in order for an "
             "association to be formed. Default is 3")
-    consec_misses_end = Property(
-        int, default=2,
+    consec_misses_end: int = Property(
+        default=2,
         doc="Number of consecutive time instances which track pairs are "
             "required to exceed a specified threshold in order for an "
             "association to be ended. Default is 2")
-    measurement_model_track1 = Property(
-        MeasurementModel,
-        doc="Measurement model which specifies which elements within the "
-            "track state are to be used to calculate distance over")
-    measurement_model_track2 = Property(
-        MeasurementModel,
-        doc="Measurement model which specifies which elements within the "
-            "track state are to be used to calculate distance over")
+    measure: Measure = Property(
+        default=Euclidean(),
+        doc="Distance measure to use. Default :class:`~.measures.Euclidean()`")
 
-    def associate_tracks(self, tracks_set_1, tracks_set_2):
+    def associate_tracks(self, tracks_set_1: Set[Track], tracks_set_2: Set[Track]):
         """Associate two sets of tracks together.
 
         Parameters
         ----------
-        tracks_set_1 : list of :class:`~.Track` objects
+        tracks_set_1 : set of :class:`~.Track` objects
             Tracks to associate to track set 2
-        tracks_set_2 : list of :class:`~.Track` objects
+        tracks_set_2 : set of :class:`~.Track` objects
             Tracks to associate to track set 1
 
         Returns
@@ -102,9 +98,7 @@ class EuclideanTrackToTrack(TrackToTrackAssociator):
                 # Loop through every detection pair and form associations
                 for state1, state2 in zip(track1_states, track2_states):
 
-                    distance = np.linalg.norm(
-                        self.measurement_model_track1.function(state1)
-                        - self.measurement_model_track2.function(state2))
+                    distance = self.measure(state1, state2)
 
                     if distance <= self.association_threshold:
                         n_succesful += 1
@@ -138,12 +132,12 @@ class EuclideanTrackToTrack(TrackToTrackAssociator):
         return AssociationSet(associations)
 
 
-class EuclideanTrackToTruth(TrackToTrackAssociator):
-    """Euclidean track to truth associator
+class TrackToTruth(TrackToTrackAssociator):
+    """Track to truth associator
 
-    Compares two sets of :class:`~.tracks`, each formed of a sequence of
+    Compares two sets of :class:`~.Track`, each formed of a sequence of
     :class:`~.State` objects and returns an :class:`~.Association` object for
-    each time at which a the two :class:`~.State` within the :class:`~.tracks`
+    each time at which a the two :class:`~.State` within the :class:`~.Track`
     are assessed to be associated. Tracks are considered to be associated with
     the Truth if the true :class:`~.State` is the closest to the track and
     within the specified distance for a specified number of time steps.
@@ -162,33 +156,25 @@ class EuclideanTrackToTruth(TrackToTrackAssociator):
     Tracks (one-2-many relationship).
     """
 
-    association_threshold = Property(
-        float,
+    association_threshold: float = Property(
         default=10,
         doc="Threshold distance measure which states must be within for an "
             "association to be recorded.Default is 10")
-    consec_pairs_confirm = Property(
-        int,
+    consec_pairs_confirm: int = Property(
         default=3,
         doc="Number of consecutive time instances which track-truth pairs are "
             "required to be within a specified threshold in order for an "
             "association to be formed. Default is 3")
-    consec_misses_end = Property(
-        int,
+    consec_misses_end: int = Property(
         default=2,
         doc="Number of consecutive time instances which track-truth pairs are "
             "required to exceed a specified threshold in order for an "
             "association to be ended. Default is 2")
-    measurement_model_track = Property(
-        MeasurementModel,
-        doc="Measurement model which specifies which elements within the "
-            "track state are to be used to calculate distance over")
-    measurement_model_truth = Property(
-        MeasurementModel,
-        doc="Measurement model which specifies which elements within the "
-            "truth state are to be used to calculate distance over")
+    measure: Measure = Property(
+        default=Euclidean(),
+        doc="Distance measure to use. Default :class:`~.measures.Euclidean()`")
 
-    def associate_tracks(self, tracks_set, truth_set):
+    def associate_tracks(self, tracks_set: Set[Track], truth_set: Set[GroundTruthPath]):
         """Associate Tracks
 
         Method compares to sets of :class:`~.Track` objects and will determine
@@ -196,9 +182,9 @@ class EuclideanTrackToTruth(TrackToTrackAssociator):
 
         Parameters
         ----------
-        tracks_set : list of :class:`~.Track` objects
+        tracks_set : set of :class:`~.Track` objects
             Tracks to associate to truth
-        truth_set : list of :class:`~.Track` objects
+        truth_set : set of :class:`~.GroundTruthPath` objects
             Truth to associate to tracks
 
         Returns
@@ -219,21 +205,28 @@ class EuclideanTrackToTruth(TrackToTrackAssociator):
             start_timestamp = None
             end_timestamp = None
 
-            for track_state in track:
+            truth_state_iters = {truth: GroundTruthPath.last_timestamp_generator(truth)
+                                 for truth in truth_set}
+            truth_states = {truth: next(truth_state_iter)
+                            for truth, truth_state_iter in truth_state_iters.items()}
+
+            for track_state in Track.last_timestamp_generator(track):
 
                 min_dist = None
                 min_truth = None
 
                 for truth in truth_set:
-
-                    try:
-                        truth_state = truth[track_state.timestamp]
-                    except IndexError:
+                    if truth[0].timestamp > track_state.timestamp \
+                            or truth[-1].timestamp < track_state.timestamp:
                         continue
 
-                    distance = np.linalg.norm(
-                        self.measurement_model_track.function(track_state)
-                        - self.measurement_model_truth.function(truth_state))
+                    while truth_states[truth].timestamp < track_state.timestamp:
+                        truth_states[truth] = next(truth_state_iters[truth])
+                    truth_state = truth_states[truth]
+                    if truth_state.timestamp != track_state.timestamp:
+                        continue
+
+                    distance = self.measure(track_state, truth_state)
                     if min_dist and distance < min_dist:
                         min_dist = distance
                         min_truth = truth
@@ -319,5 +312,52 @@ class EuclideanTrackToTruth(TrackToTrackAssociator):
                 associations.add(TimeRangeAssociation(
                     (track, current_truth),
                     TimeRange(start_timestamp, end_timestamp)))
+
+        return AssociationSet(associations)
+
+
+class TrackIDbased(TrackToTrackAssociator):
+    """Track ID based associator
+
+        Compares set of :class:`~.Track` objects to set of :class:`~.GroundTruth` objects,
+        each formed of a sequence of :class:`~.State` objects and returns an
+        :class:`~.Association` object for each time at which a the two :class:`~.State`
+        within the :class:`~.Track` and :class:`~.GroundTruthPath` are assessed to be associated.
+        Tracks are considered to be associated with the Ground Truth if the ID of the Track
+        is the same as the ID of the Ground Truth.
+        """
+
+    def associate_tracks(self, tracks_set, truths_set):
+        """Associate two sets of tracks together.
+
+               Parameters
+               ----------
+               tracks_set : list of :class:`~.Track` objects
+                   Tracks to associate to ground truths set
+               truths_set: list of :class:`~.GroundTruthPath` objects
+                   Ground truths to associate to tracks set
+
+               Returns
+               -------
+               AssociationSet
+                   Contains a set of :class:`~.Association` objects
+
+               """
+
+        associations = set()
+
+        for track in tracks_set:
+            for truth in truths_set:
+                if track.id == truth.id:
+                    try:
+                        associations.add(
+                            TimeRangeAssociation((track, truth),
+                                                 TimeRange(max(track[0].timestamp,
+                                                               truth[0].timestamp),
+                                                           min(track[-1].timestamp,
+                                                               truth[-1].timestamp))))
+                    except (TypeError, ValueError):
+                        # A timestamp is None, or non-overlapping timestamps (start > end)
+                        associations.add(Association((track, truth)))
 
         return AssociationSet(associations)

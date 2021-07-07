@@ -18,27 +18,19 @@ class PDAHypothesiser(Hypothesiser):
     detections.
     """
 
-    predictor = Property(
-        Predictor,
-        doc="Predict tracks to detection times")
-    updater = Property(
-        Updater,
-        doc="Updater used to get measurement prediction")
-    clutter_spatial_density = Property(
-        float,
-        doc="Spatial density of clutter - tied to probability of false "
-            "detection")
-    prob_detect = Property(
-        Probability,
+    predictor: Predictor = Property(doc="Predict tracks to detection times")
+    updater: Updater = Property(doc="Updater used to get measurement prediction")
+    clutter_spatial_density: float = Property(
+        doc="Spatial density of clutter - tied to probability of false detection")
+    prob_detect: Probability = Property(
         default=Probability(0.85),
         doc="Target Detection Probability")
-    prob_gate = Property(
-        Probability,
+    prob_gate: Probability = Property(
         default=Probability(0.95),
         doc="Gate Probability - prob. gate contains true measurement "
             "if detected")
 
-    def hypothesise(self, track, detections, timestamp):
+    def hypothesise(self, track, detections, timestamp, **kwargs):
         r"""Evaluate and return all track association hypotheses.
 
         For a given track and a set of N detections, return a
@@ -95,12 +87,11 @@ class PDAHypothesiser(Hypothesiser):
 
         Parameters
         ----------
-        track: :class:`~.Track`
+        track : Track
             The track object to hypothesise on
-        detections: :class:`list`
-            A list of :class:`~Detection` objects, representing the available
-            detections.
-        timestamp: :class:`datetime.datetime`
+        detections : set of :class:`~.Detection`
+            The available detections
+        timestamp : datetime.datetime
             A timestamp used when evaluating the state and measurement
             predictions. Note that if a given detection has a non empty
             timestamp, then prediction will be performed according to
@@ -109,36 +100,35 @@ class PDAHypothesiser(Hypothesiser):
         Returns
         -------
         : :class:`~.MultipleHypothesis`
-            A container of :class:`~SingleProbabilityHypothesis` objects
-
+            A container of :class:`~.SingleProbabilityHypothesis` objects
         """
 
         hypotheses = list()
 
         # Common state & measurement prediction
-        prediction = self.predictor.predict(track.state, timestamp=timestamp)
-
+        prediction = self.predictor.predict(track, timestamp=timestamp, **kwargs)
         # Missed detection hypothesis
         probability = Probability(1 - self.prob_detect*self.prob_gate)
         hypotheses.append(
             SingleProbabilityHypothesis(
                 prediction,
                 MissedDetection(timestamp=timestamp),
-                probability))
+                probability
+                ))
 
         # True detection hypotheses
         for detection in detections:
-
             # Re-evaluate prediction
             prediction = self.predictor.predict(
-                track.state, timestamp=detection.timestamp)
-
+                track, timestamp=detection.timestamp, **kwargs)
             # Compute measurement prediction and probability measure
             measurement_prediction = self.updater.predict_measurement(
-                prediction, detection.measurement_model)
-            log_pdf = mn.logpdf(detection.state_vector.ravel(),
-                                measurement_prediction.state_vector.ravel(),
-                                measurement_prediction.covar)
+                prediction, detection.measurement_model, **kwargs)
+            # Calculate difference before to handle custom types (mean defaults to zero)
+            # This is required as log pdf coverts arrays to floats
+            log_pdf = mn.logpdf(
+                (detection.state_vector - measurement_prediction.state_vector).ravel(),
+                cov=measurement_prediction.covar)
             pdf = Probability(log_pdf, log_value=True)
             probability = (pdf * self.prob_detect)/self.clutter_spatial_density
 

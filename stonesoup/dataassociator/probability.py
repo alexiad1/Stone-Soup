@@ -19,32 +19,13 @@ class PDA(DataAssociator):
     probability that it is associated to each specific detection.
     """
 
-    hypothesiser = Property(
-        Hypothesiser,
+    hypothesiser: Hypothesiser = Property(
         doc="Generate a set of hypotheses for each prediction-detection pair")
 
-    def associate(self, tracks, detections, time):
-        """Associate detections with predicted states.
-
-        Parameters
-        ----------
-        tracks : list of :class:`Track`
-            Current tracked objects
-        detections : list of :class:`Detection`
-            Retrieved measurements
-        time : datetime
-            Detection time to predict to
-
-        Returns
-        -------
-        dict
-            Key value pair of tracks with associated detection
-        """
+    def associate(self, tracks, detections, timestamp, **kwargs):
 
         # Generate a set of hypotheses for each track on each detection
-        hypotheses = {
-            track: self.hypothesiser.hypothesise(track, detections, time)
-            for track in tracks}
+        hypotheses = self.generate_hypotheses(tracks, detections, timestamp, **kwargs)
 
         # Ensure association probabilities are normalised
         for track, hypothesis in hypotheses.items():
@@ -73,43 +54,18 @@ class JPDA(DataAssociator):
     takes place in the function :meth:`enumerate_JPDA_hypotheses`.
     """
 
-    hypothesiser = Property(
-        PDAHypothesiser,
+    hypothesiser: PDAHypothesiser = Property(
         doc="Generate a set of hypotheses for each prediction-detection pair")
-    gate_ratio = Property(
-        float,
-        doc="If probability of Detection/Track association is less than this "
-            "many times less than probability of MissedDetection, treat "
-            "probability of association as 0."
-    )
 
-    def associate(self, tracks, detections, time):
-        """Associate detections with predicted states.
-
-        Parameters
-        ----------
-        tracks : list of :class:`Track`
-            Current tracked objects
-        detections : list of :class:`Detection`
-            Retrieved measurements
-        time : datetime
-            Detection time to predict to
-
-        Returns
-        -------
-        dict
-            Key value pair of tracks with associated detection
-        """
+    def associate(self, tracks, detections, timestamp, **kwargs):
 
         # Calculate MultipleHypothesis for each Track over all
         # available Detections
-        hypotheses = {
-            track: self.hypothesiser.hypothesise(track, detections, time)
-            for track in tracks}
+        hypotheses = self.generate_hypotheses(tracks, detections, timestamp, **kwargs)
 
         # enumerate the Joint Hypotheses of track/detection associations
         joint_hypotheses = \
-            self.enumerate_JPDA_hypotheses(tracks, hypotheses, self.gate_ratio)
+            self.enumerate_JPDA_hypotheses(tracks, hypotheses)
 
         # Calculate MultiMeasurementHypothesis for each Track over all
         # available Detections with probabilities drawn from JointHypotheses
@@ -128,26 +84,25 @@ class JPDA(DataAssociator):
             single_measurement_hypotheses.append(
                 SingleProbabilityHypothesis(
                     hypotheses[track][0].prediction,
-                    MissedDetection(timestamp=time),
-                    measurement_prediction=hypotheses[track][0]
-                    .measurement_prediction,
+                    MissedDetection(timestamp=timestamp),
+                    measurement_prediction=hypotheses[track][0].measurement_prediction,
                     probability=prob_misdetect))
 
             # record hypothesis for any given Detection being associated with
             # this track
-            for detection in detections:
+            for hypothesis in hypotheses[track]:
+                if not hypothesis:
+                    continue
                 pro_detect_assoc = Probability.sum(
                     joint_hypothesis.probability
                     for joint_hypothesis in joint_hypotheses
-                    if joint_hypothesis.
-                    hypotheses[track].measurement is detection)
+                    if joint_hypothesis.hypotheses[track].measurement is hypothesis.measurement)
 
                 single_measurement_hypotheses.append(
                     SingleProbabilityHypothesis(
-                        hypotheses[track][0].prediction,
-                        detection,
-                        measurement_prediction=hypotheses[track][0].
-                        measurement_prediction,
+                        hypothesis.prediction,
+                        hypothesis.measurement,
+                        measurement_prediction=hypothesis.measurement_prediction,
                         probability=pro_detect_assoc))
 
             result = MultipleHypothesis(single_measurement_hypotheses, True, 1)
@@ -157,7 +112,7 @@ class JPDA(DataAssociator):
         return new_hypotheses
 
     @classmethod
-    def enumerate_JPDA_hypotheses(cls, tracks, multihypths, gate_ratio):
+    def enumerate_JPDA_hypotheses(cls, tracks, multihypths):
 
         joint_hypotheses = list()
 
@@ -172,13 +127,9 @@ class JPDA(DataAssociator):
 
         for track in tracks:
             track_possible_assoc = list()
-            missed_probability = \
-                multihypths[track].get_missed_detection_probability()
-            missed_gate = missed_probability/gate_ratio
             for hypothesis in multihypths[track]:
                 # Always include missed detection (gate ratio < 1)
-                if not hypothesis or hypothesis.probability >= missed_gate:
-                    track_possible_assoc.append(hypothesis)
+                track_possible_assoc.append(hypothesis)
             possible_assoc.append(track_possible_assoc)
 
         # enumerate all valid JPDA joint hypotheses

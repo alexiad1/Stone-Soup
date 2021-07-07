@@ -19,20 +19,39 @@ Stone Soup is currently in *beta* and under continuing development, where
 feedback and contributions are welcomed to improve the component interface
 design and grow the number components available.
 
-Please see the example
-`Stone Soup Notebooks <https://github.com/dstl/Stone-Soup-Notebooks>`_.
+Please see the Stone Soup :ref:`auto_tutorials/index:Tutorials` for learning
+about tracking and using Stone Soup, :ref:`auto_examples/index:Examples` for
+examples of Stone Soup features, and :ref:`auto_demos/index:Demonstrations`
+for demonstrations of using Stone Soup.
 
 For community support, head over to the
 `Stone Soup room on Gitter <https://gitter.im/dstl/Stone-Soup>`_.
 
 Installation
 ------------
-To install Stone Soup from PyPI execute:
+To install Stone Soup from PyPI with ``pip``:
 
 .. code::
 
     python -m pip install stonesoup
 
+To install Stone Soup from Conda-Forge with ``conda``:
+
+.. code::
+
+    conda config --add channels conda-forge
+    conda install stonesoup
+
+Stone Soup is currently in active development under *beta*. To install
+the latest version from the GitHub repository:
+
+.. code::
+
+    python -m pip install git+https://github.com/dstl/Stone-Soup.git#egg=stonesoup
+
+
+Developing
+^^^^^^^^^^
 If you are looking to carry out development with Stone Soup, you should first
 clone from GitHub and install with development dependencies by doing the
 following:
@@ -43,21 +62,19 @@ following:
     cd Stone-Soup
     python -m pip install -e .[dev]
 
+Please also see our :ref:`contributing:Contributing` page.
 
-Contents:
+Contents
+========
 
 .. toctree::
     :maxdepth: 2
 
-    dataflow
-    interface
-    types
-    stonesoup.config
-    stonesoup.base
-    stonesoup.functions
-    stonesoup.measures
-    stonesoup.serialise
+    design
     stonesoup
+    auto_tutorials/index
+    auto_examples/index
+    auto_demos/index
     contributing
     copyright
 

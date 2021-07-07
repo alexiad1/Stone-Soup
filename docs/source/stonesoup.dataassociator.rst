@@ -7,12 +7,6 @@ Data Association
 .. automodule:: stonesoup.dataassociator.base
     :show-inheritance:
 
-Track-to-track Association
-==========================
-
-.. automodule:: stonesoup.dataassociator.tracktotrack
-    :show-inheritance:
-
 Neighbour
 ---------
 
@@ -23,4 +17,16 @@ Probability
 -----------
 
 .. automodule:: stonesoup.dataassociator.probability
+    :show-inheritance:
+
+Track-to-track Association
+--------------------------
+
+.. automodule:: stonesoup.dataassociator.tracktotrack
+    :show-inheritance:
+
+Trees
+--------------------------
+
+.. automodule:: stonesoup.dataassociator.tree
     :show-inheritance:
