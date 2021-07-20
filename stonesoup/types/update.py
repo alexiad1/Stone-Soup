@@ -4,7 +4,8 @@ from typing import Any, Optional
 from ..base import Property
 from .base import Type
 from .hypothesis import Hypothesis
-from .state import State, GaussianState, ParticleState, SqrtGaussianState, StateMutableSequence
+from .state import State, GaussianState, ParticleState, SqrtGaussianState, StateMutableSequence, \
+    InformationState
 from .mixture import GaussianMixture
 
 
