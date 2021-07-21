@@ -5,6 +5,7 @@ from ..opensky import OpenSkyNetworkDetectionReader, OpenSkyNetworkGroundTruthRe
 pytestmark = pytest.mark.remote_data
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize(
     'reader_type',
     (OpenSkyNetworkDetectionReader, OpenSkyNetworkGroundTruthReader))
