@@ -95,7 +95,7 @@ class InformationStatePrediction(Prediction, InformationState):
     """
 
 
-class StateMeasurementPrediction(State, MeasurementPrediction):
+class StateMeasurementPrediction(MeasurementPrediction, State):
     """ MeasurementPrediction type
 
     Most simple measurement prediction type, which only has time and a state
