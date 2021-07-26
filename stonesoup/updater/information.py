@@ -140,7 +140,7 @@ class InformationKalmanUpdater(KalmanUpdater):
         posterior_information_mean = pred_info_mean + hh.T @ invr @ \
             hypothesis.measurement.state_vector
 
-        if force_symmetric_covariance:
+        if self.force_symmetric_covariance:
             posterior_precision = (posterior_precision + posterior_precision.T)/2
 
         return Update.from_state(hypothesis.prediction, posterior_information_mean,
